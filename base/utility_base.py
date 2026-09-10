@@ -175,21 +175,30 @@ def broadcast_disable(c, target_chips=None):
             if not (target_chips is None):
                 if not ( (io_group, io_channel) in target_channels): continue
 
-            if not (broadcast in c.chips): c.add_chip(broadcast)
+            if not (broadcast in c.chips):
+                versions = {
+                    c[key].asic_version for key in c.chips
+                    if key.io_group == io_group and key.io_channel == io_channel
+                }
+                if len(versions) != 1:
+                    raise RuntimeError(
+                        f'Cannot determine homogeneous ASIC family for {io_group}-{io_channel}'
+                    )
+                c.add_chip(broadcast, version=versions.pop())
 
             #print('Broadcast disable on (io_group, io_channel)=(', io_group, ',', io_channel, ')' )
 
             c[broadcast].config.channel_mask = [0]*64
-            c[broadcast].config.test_mode_uart0 = 0
-            c[broadcast].config.test_mode_uart1 = 0
-            c[broadcast].config.test_mode_uart2 = 0
-            c[broadcast].config.test_mode_uart3 = 0
+            uart_test_registers = [
+                name for name in (f'test_mode_uart{i}' for i in range(4))
+                if hasattr(c[broadcast].config, name)
+            ]
+            for name in uart_test_registers:
+                setattr(c[broadcast].config, name, 0)
 
             for __ in range(_broadcast_disable_nwrite):
-                c.write_configuration(broadcast, 'test_mode_uart0')
-                c.write_configuration(broadcast, 'test_mode_uart1')
-                c.write_configuration(broadcast, 'test_mode_uart2')
-                c.write_configuration(broadcast, 'test_mode_uart3')
+                for name in uart_test_registers:
+                    c.write_configuration(broadcast, name)
                 c.write_configuration(broadcast, 'channel_mask')
 
             c.remove_chip(broadcast)
@@ -539,4 +548,3 @@ def unique_to_io_group(unique):
 def chip_key_to_asic_id(chip_key):
     args = str(chip_key).split('-')
     return '{}-{}-{}'.format(args[0], io_channel_to_tile(int(args[1])), args[2])
-
