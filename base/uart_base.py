@@ -2,6 +2,7 @@ from base import utility_base
 from base import network_base
 from base import uart_base
 from base import asic_base
+from base import pacman_base
 #from timebudget import timebudget
 
 #@timebudget
@@ -25,7 +26,7 @@ def reset_uarts(c, chip_key, verbose):
 #@timebudget
 def setup_parent_piso(c, io, parent, daughter, verbose, tx_diff, tx_slice):
     enable_parent_piso_us(c,  parent, daughter, verbose, tx_diff, tx_slice)
-    io.set_reg(0x18, 2**(parent.io_channel-1), io_group=parent.io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, parent.io_group, [parent.io_channel])
     ok, diff = utility_base.reconcile_configuration(c, parent, verbose)
     return ok, diff
 

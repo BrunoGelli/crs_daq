@@ -1,7 +1,9 @@
-### FIX ME:
-### (1) change version to pacman version (discriminate from asic version)
-### (2) substitute inversion table for hex(0x0201c+0x01000*ioc)
-### (3) debug enable_pacman_uart bit declaration
+"""PACMAN hardware helpers.
+
+The CERN Rev5/Hijinks firmware exposes 40 logical LArPix channels but only 32
+physical UARTs.  Chip keys always retain logical channels; only register-level
+operations use the mapping below.
+"""
 import larpix
 import larpix.io
 from base import utility_base
@@ -22,6 +24,44 @@ for var in RUN.config.keys():
 #---------------PACMAN UART INVERSION/DISABLE/ENABLE---------------------#
 ##########################################################################
 
+from base.hijinks import (
+    DEAD_LOGICAL_CHANNELS, PACKET_DELAY_BASE, PACKET_DELAY_STRIDE,
+    RX_MASK_REGISTER, logical_to_physical_uart, physical_rx_mask,
+)
+
+
+def enable_pacman_uart_from_io_channels(io, io_group, io_channels):
+    physical = [logical_to_physical_uart(channel) for channel in io_channels]
+    mask = physical_rx_mask(physical)
+    io.set_reg(RX_MASK_REGISTER, mask, io_group=io_group)
+    return mask
+
+
+def enable_pacman_uart_from_io_channel(io, io_group, io_channels):
+    return enable_pacman_uart_from_io_channels(io, io_group, io_channels)
+
+
+def disable_all_pacman_uart(io, io_group):
+    io.set_reg(RX_MASK_REGISTER, 0xFFFFFFFF, io_group=io_group)
+
+
+def set_uart_clock_ratio(io, io_group, logical_channel, ratio):
+    """Set a UART clock using its physical index, never a logical channel."""
+    physical = logical_to_physical_uart(logical_channel)
+    return io.set_uart_clock_ratio(physical, ratio, io_group=io_group)
+
+
+def set_packet_delay(io, io_group, logical_channel, delay=0xFF):
+    """Set the packet delay field for the mapped physical UART."""
+    if not 0 <= delay <= 0xFF:
+        raise ValueError("Packet delay must fit in eight bits")
+    physical = logical_to_physical_uart(logical_channel)
+    register = PACKET_DELAY_BASE + (physical - 1) * PACKET_DELAY_STRIDE
+    old = io.get_reg(register, io_group=io_group)
+    new = (old & 0xFF) | (delay << 8)
+    io.set_reg(register, new, io_group=io_group)
+    return new
+
 def invert_pacman_uart(io, io_group, asic_version, tile):
     if asic_version!='2b': return
     inversion_registers={1:0x0301c, 2:0x0401c, 3:0x0501c, 4:0x0601c,
@@ -37,57 +77,19 @@ def invert_pacman_uart(io, io_group, asic_version, tile):
         io.set_reg(inversion_registers[ioc], 0b11, io_group=io_group)
     return
 
-def enable_pacman_uart_from_io_channel(io, io_group, io_channel):
-    bits=list('00000000000000000000000000000000')
-    for ioc in io_channel:
-        bits[-1*ioc]='1'
-    io.set_reg(0x18, int("".join(bits),2), io_group=io_group)
-    return
-
 def enable_all_pacman_uart_from_io_group(io, io_group, true_all=False):
-    bits=list('111111111111111111111111111111')
-    if not true_all:
-        enable_pacman_uart_from_tile(io, io_group, io_group_pacman_tile_[io_group])
-    else:
-        io.set_reg(0x18, int("".join(bits),2), io_group=io_group)
-    return
+    if true_all:
+        return enable_pacman_uart_from_io_channels(
+            io, io_group, [c for c in range(1, 41) if c not in DEAD_LOGICAL_CHANNELS]
+        )
+    return enable_pacman_uart_from_tile(io, io_group, io_group_pacman_tile_[io_group])
 
 
 
 def enable_pacman_uart_from_tile(io, io_group, tile):
-    bits=list('00000000000000000000000000000000')
-    io_channel=utility_base.tile_to_io_channel(tile)
-    for ioc in io_channel:
-        bits[-1*ioc]='1'
-    io.set_reg(0x18, int("".join(bits),2), io_group=io_group)
-    return
-
-
-
-def enable_pacman_uart_from_io_channels(io, io_group, io_channels):
-    bits=list('00000000000000000000000000000000')
-    for ioc in io_channels:
-        bits[-1*ioc]='1'
-    io.set_reg(0x18, int("".join(bits),2), io_group=io_group)
-    return
-
-
-
-def enable_pacman_uart_from_io_channel(io, io_group, io_channels):
-    bits=list('00000000000000000000000000000000')
-    for io_channel in io_channels:
-        try:
-            bits[-1*io_channel]='1'
-        except:
-            print('failed attemping to enable  io_channell:', io_channel)
-    io.set_reg(0x18, int("".join(bits),2), io_group=io_group)
-    return
-
-    
-    
-def disable_all_pacman_uart(io, io_group):
-    io.set_reg(0x18, 0x0, io_group=io_group)
-    return
+    channels = utility_base.tile_to_io_channel(tile)
+    channels = [c for c in channels if c not in DEAD_LOGICAL_CHANNELS]
+    return enable_pacman_uart_from_io_channels(io, io_group, channels)
 
 
 
