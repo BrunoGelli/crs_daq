@@ -16,6 +16,7 @@ import time
 from time import perf_counter
 import shutil
 from base import config_loader
+from base.tile_layout import V2D_DONOR_ROOT_IDS, validate_physical_root_assignment
 from tqdm import tqdm
 
 import sys
@@ -35,7 +36,13 @@ _default_tx_slice=7
 _default_r_term=2
 _default_i_rx=8
 _default_recheck=False
-v2d_root_ids=[21, 61, 101, 151]
+
+def parse_root_map(values):
+    mapping = {}
+    for value in values or ():
+        channel, chip_id = (int(part) for part in value.split(':', 1))
+        mapping[channel] = chip_id
+    return mapping
 
 def main(io_group, file_prefix=_default_file_prefix, \
          disable_logger=_default_disable_logger, \
@@ -47,6 +54,7 @@ def main(io_group, file_prefix=_default_file_prefix, \
          i_rx=_default_i_rx,
          pacman_tile=None,\
          pacman_config=None,\
+         physical_root_map=None,\
          **kwargs):
    
     if pacman_config is None:
@@ -90,11 +98,20 @@ def main(io_group, file_prefix=_default_file_prefix, \
                 root_keys=[]
                 unconfigured=[]
                 io_channels = utility_base.tile_to_io_channel([tile])
+                live_channels = [channel for channel in io_channels
+                                 if channel not in pacman_base.DEAD_LOGICAL_CHANNELS]
+                if physical_root_map:
+                    root_ids = validate_physical_root_assignment(
+                        parse_root_map(physical_root_map), live_channels)
+                    print('using operator-confirmed physical root assignment:', root_ids)
+                else:
+                    root_ids = V2D_DONOR_ROOT_IDS
+                    print('using donor-programmed root IDs (not verified physical positions):', root_ids)
                 for io_channel in io_channels:
                     if io_channel in pacman_base.DEAD_LOGICAL_CHANNELS:
                         print(f'skipping dead logical channel {io_channel}')
                         continue
-                    cid =  v2d_root_ids[ (io_channel-1) % 4]
+                    cid = root_ids[io_channel]
                     network_base.network_ext_node_from_tuple(c, iog, io_channel, cid)
                     candidate_root = network_base.setup_root(c, c.io, iog, \
                                                           io_channel,\
@@ -132,8 +149,11 @@ def main(io_group, file_prefix=_default_file_prefix, \
                                                              exclude_links=iog_exclude_links[iog])
                     unconfigured.extend(out_of_network)
                 output_prefix = _file_prefix or 'iog_{}-tile_{}'.format(iog, tile)
+                print('ASIC discovery traversal finished; validating topology and export')
                 network_file = network_base.write_network_to_file(c, output_prefix, {io_group : [tile] },\
                                        unconfigured, asic_version='2d')
+                print(f'discovery complete: {len(unconfigured)} non-configured chips')
+                print(f'topology validation and JSON export complete: {network_file}')
 
             return c, c.io
 
@@ -142,6 +162,9 @@ def main(io_group, file_prefix=_default_file_prefix, \
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--pacman_config', required=True)
+    parser.add_argument('--physical-root-map', action='append', default=None,
+                        metavar='LOGICAL:POSITION',
+                        help='operator-confirmed connector mapping; repeat for every live channel')
     parser.add_argument('--io_group', default=None, \
                         type=int, help='''io group to network''')
     parser.add_argument('--pacman_tile', default=None, \

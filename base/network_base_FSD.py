@@ -11,7 +11,7 @@ from base import asic_base
 import json
 import time
 from base import pacman_base
-from base.network_config import validate_external_roots
+from base.network_config import UART_MAPS, validate_external_roots, write_validated_network
 import numpy as np
 # from timebudget import timebudget
 # import asyncio
@@ -683,6 +683,30 @@ def miso_us_chip_id_list(chip2chip_pair, miso_us):
     return miso_us
 
 
+def _serialized_nodes(graphs):
+    """Serialize the actual directed graph edges and their ASIC UART labels."""
+    graph = graphs['miso_us']
+    nodes = set(graph.nodes)
+    result = []
+    for node in sorted(nodes, key=lambda item: (-1 if item == 'ext' else item)):
+        spec = {"chip_id": node}
+        links = [None] * 4
+        for _, target, edge_data in graph.out_edges(node, data=True):
+            uart = edge_data.get('uart')
+            try:
+                slot = UART_MAPS['miso_us_uart_map'].index(uart)
+            except ValueError as error:
+                raise ValueError(f'invalid miso_us UART {uart} on node {node}') from error
+            if links[slot] is not None:
+                raise ValueError(f'duplicate miso_us UART {uart} on node {node}')
+            links[slot] = target
+        spec['miso_us'] = links
+        if graph.nodes[node].get('root'):
+            spec["root"] = True
+        result.append(spec)
+    return result
+
+
 def write_network_to_file(c, file_prefix, io_group_pacman_tile, unconfigured,
                           layout="2.5.1", asic_version='2b'):
 
@@ -696,29 +720,24 @@ def write_network_to_file(c, file_prefix, io_group_pacman_tile, unconfigured,
     d["network"] = {}
     for iog in io_group_pacman_tile.keys():
         if not iog in c.network.keys():
-            continue
+            expected = [ioc for ioc in utility_base.tile_to_io_channel(
+                io_group_pacman_tile[iog])
+                if ioc not in pacman_base.DEAD_LOGICAL_CHANNELS]
+            raise ValueError(f'IOG {iog}: unexpectedly missing live channels {expected}')
         d["network"][iog] = {}
         io_channels = utility_base.tile_to_io_channel(
             io_group_pacman_tile[iog])
+        present = set(c.network[iog])
+        missing_live = [ioc for ioc in io_channels
+                        if ioc not in pacman_base.DEAD_LOGICAL_CHANNELS and ioc not in present]
+        if missing_live:
+            raise ValueError(f'IOG {iog}: unexpectedly missing live channels {missing_live}')
         for ioc in io_channels:
-            d["network"][iog][ioc] = {}
-            d["network"][iog][ioc]["nodes"] = []
-            for node in list(c.network[iog][ioc]['miso_us']):
-                temp = {}
-                temp["chip_id"] = node
-                miso_us = [None]*4
-                for edge in list(c.network[iog][ioc]['miso_us'].edges()):
-                    for chip2chip_pair in \
-                            c.network[iog][ioc]['miso_us'].edges(edge):
-                        if chip2chip_pair[0] == node:
-                            miso_us_chip_id_list(chip2chip_pair, miso_us)
-                temp["miso_us"] = miso_us
-                if c.network[iog][ioc]['miso_us'].nodes[node]['root'] == True:
-                    temp["root"] = True
-                d["network"][iog][ioc]["nodes"].append(temp)
-    d["network"]["miso_us_uart_map"] = [3, 2, 1, 0]
-    d["network"]["miso_ds_uart_map"] = [1, 0, 3, 2]
-    d["network"]["mosi_uart_map"] = [2, 1, 0, 3]
+            if ioc in pacman_base.DEAD_LOGICAL_CHANNELS:
+                continue
+            graphs = c.network[iog][ioc]
+            d["network"][iog][ioc] = {"nodes": _serialized_nodes(graphs)}
+    d["network"].update(UART_MAPS)
 
     d["missing"] = {}
     for pair in unconfigured:
@@ -736,8 +755,7 @@ def write_network_to_file(c, file_prefix, io_group_pacman_tile, unconfigured,
         fname = file_prefix+'-hydra-network.json'
     if file_prefix == None:
         fname = 'network-'+now+'.json'
-    with open(fname, 'w') as out:
-        json.dump(d, out, indent=4)
+    write_validated_network(d, fname)
     print('network JSON: ', fname)
 
     return fname

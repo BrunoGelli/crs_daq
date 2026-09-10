@@ -1,5 +1,6 @@
 import unittest
 import json
+import os
 import tempfile
 
 from base.asic_family import (
@@ -13,7 +14,19 @@ from base.hijinks import (
     physical_rx_mask,
     physical_uart_clock_register,
 )
-from base.network_config import root_only_network, validate_external_roots
+from base.network_config import (
+    root_only_network,
+    validate_external_roots,
+    validate_network_payload,
+)
+from base.tile_layout import (
+    PHYSICAL_ROOT_POSITIONS,
+    column_row_from_position,
+    physical_neighbors,
+    position_from_column_row,
+    validate_physical_links,
+    validate_physical_root_assignment,
+)
 
 
 class FakeIO:
@@ -150,7 +163,135 @@ class HijinksMappingTest(unittest.TestCase):
         self.assertEqual(config.tx_slices2, 15)
 
 
+class TileGeometryTest(unittest.TestCase):
+    def test_all_positions_round_trip_and_corners_match(self):
+        positions = []
+        for column in range(16):
+            for row in range(10):
+                position = position_from_column_row(column, row)
+                positions.append(position)
+                self.assertEqual(column_row_from_position(position), (column, row))
+        self.assertEqual(len(set(positions)), 160)
+        self.assertEqual(position_from_column_row(0, 0), 11)
+        self.assertEqual(position_from_column_row(0, 9), 20)
+        self.assertEqual(position_from_column_row(15, 0), 161)
+        self.assertEqual(position_from_column_row(15, 9), 170)
+
+    def test_roots_are_top_row_and_neighbors_do_not_wrap(self):
+        self.assertTrue(all(column_row_from_position(root)[1] == 0
+                            for root in PHYSICAL_ROOT_POSITIONS))
+        self.assertNotIn(21, physical_neighbors(20))
+        self.assertEqual(physical_neighbors(11), {12, 21})
+        for position in range(11, 171):
+            for neighbor in physical_neighbors(position):
+                column, row = column_row_from_position(position)
+                other_column, other_row = column_row_from_position(neighbor)
+                self.assertEqual(abs(column - other_column) + abs(row - other_row), 1)
+
+    def test_physical_connector_assignment_must_be_explicit(self):
+        assignment = validate_physical_root_assignment(
+            {25: 21, 26: 61, 27: 111}, {25, 26, 27})
+        self.assertEqual(assignment[27], 111)
+        with self.assertRaises(ValueError):
+            validate_physical_root_assignment({25: 21, 26: 61}, {25, 26, 27})
+        with self.assertRaises(ValueError):
+            validate_physical_root_assignment(
+                {25: 21, 26: 61, 27: 101}, {25, 26, 27})
+
+    def test_declared_physical_links_match_layout(self):
+        links = []
+        for position in range(11, 171):
+            links.extend((position, neighbor)
+                         for neighbor in physical_neighbors(position))
+        self.assertEqual(validate_physical_links(links), links)
+        with self.assertRaisesRegex(ValueError, "non-neighbor"):
+            validate_physical_links([(20, 21)])
+
+
 class NetworkConfigTest(unittest.TestCase):
+    @staticmethod
+    def _edge_signature(controller):
+        return {
+            (io_group, io_channel, network_name): set(graph.edges(data="uart"))
+            for io_group, channels in controller.network.items()
+            for io_channel, graphs in channels.items()
+            for network_name, graph in graphs.items()
+        }
+
+    def test_v2d_three_channel_export_validate_reload_round_trip(self):
+        try:
+            import larpix
+            from base.network_base_FSD import write_network_to_file
+        except ModuleNotFoundError as error:
+            if error.name == "larpix":
+                self.skipTest("larpix-control is not installed")
+            raise
+        controller = larpix.Controller()
+        for channel, root in ((25, 21), (26, 61), (27, 101)):
+            controller.add_network_node(1, channel, controller.network_names,
+                                        "ext", root=True)
+            controller.add_chip(larpix.Key(1, channel, root), version="2d", root=False)
+            controller.add_chip(larpix.Key(1, channel, root + 1), version="2d", root=False)
+            for chip_id in (root, root + 1):
+                config = controller[larpix.Key(1, channel, chip_id)].config
+                config.enable_piso_upstream = [0, 0, 0, 0]
+                config.enable_piso_downstream = [0, 0, 0, 0]
+                config.enable_posi = [0, 0, 0, 0]
+            controller.add_network_link(1, channel, "miso_us", ("ext", root), 3)
+            controller.add_network_link(1, channel, "miso_us", (root, root + 1), 0)
+            controller.add_network_link(1, channel, "miso_ds", (root, "ext"), 1)
+            controller.add_network_link(1, channel, "miso_ds", (root + 1, root), 2)
+            controller.add_network_link(1, channel, "mosi", ("ext", root), 2)
+            controller.add_network_link(1, channel, "mosi", (root, "ext"), 0)
+            controller.add_network_link(1, channel, "mosi", (root, root + 1), 3)
+            controller.add_network_link(1, channel, "mosi", (root + 1, root), 1)
+
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = os.path.join(directory, "iog_1-tile_7")
+            filename = write_network_to_file(
+                controller, prefix, {1: [7]}, [], asic_version="2d")
+            payload = validate_external_roots(filename)
+            self.assertEqual(set(payload["network"]["1"]), {"25", "26", "27"})
+            reloaded = larpix.Controller()
+            reloaded.load(filename)
+
+        self.assertEqual(set(controller.chips), set(reloaded.chips))
+        self.assertEqual(self._edge_signature(controller),
+                         self._edge_signature(reloaded))
+        for channel, root in ((25, 21), (26, 61), (27, 101)):
+            self.assertTrue(reloaded.network[1][channel]["miso_us"].nodes["ext"]["root"])
+            self.assertEqual(
+                reloaded[larpix.Key(1, channel, root)].asic_version, "2d")
+
+    def test_missing_live_channel_does_not_overwrite_output(self):
+        try:
+            import larpix
+            from base.network_base_FSD import write_network_to_file
+        except ModuleNotFoundError as error:
+            if error.name == "larpix":
+                self.skipTest("larpix-control is not installed")
+            raise
+        controller = larpix.Controller()
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = os.path.join(directory, "existing")
+            destination = prefix + "-hydra-network.json"
+            with open(destination, "w", encoding="utf-8") as output:
+                output.write("known-good")
+            with self.assertRaisesRegex(ValueError, "missing live channels"):
+                write_network_to_file(
+                    controller, prefix, {1: [7]}, [], asic_version="2d")
+            with open(destination, encoding="utf-8") as saved:
+                self.assertEqual(saved.read(), "known-good")
+
+    def test_empty_and_malformed_networks_are_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_network_payload({"_config_type": "controller",
+                                      "asic_version": "2d", "network": {}})
+        malformed = root_only_network(1, 25, 21, "malformed", "2d")
+        malformed["network"]["1"]["25"]["nodes"][0]["miso_us"][3] = 999
+        with self.assertRaisesRegex(ValueError, "dangling"):
+            validate_network_payload(malformed)
+
     def test_root_graph_points_from_external_node_to_asic(self):
         payload = root_only_network(2, 37, 1, "v3-root", 3)
         nodes = payload["network"]["2"]["37"]["nodes"]
