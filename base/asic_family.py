@@ -24,6 +24,12 @@ def packet_family_for_asic(value):
     return 2 if family == "2d" else 3
 
 
+def uart_clock_ratio_for_asic(value):
+    """Return the bench-proven persistent PACMAN UART ratio for a family."""
+    family = normalize_asic_family(value)
+    return 2 if family == "2d" else 1
+
+
 def single_io_group(pacman_config):
     """Validate and return the IOG from a one-PACMAN control configuration."""
     pairs = pacman_config.get("io_group", [])

@@ -6,7 +6,8 @@ import larpix.io
 from runenv import runenv as RUN
 import argparse
 from base import config_loader
-from base import network_base
+from base import network_base_FSD
+from base import network_base_FSD_v3
 from tqdm import tqdm
 from base import pacman_base
 from base import utility_base
@@ -26,7 +27,7 @@ _default_verbose = False
 _default_controller_config = None
 _update_default=False
 
-def enforce_iterative(nc, all_network_keys, n=5, configs=None, pbar_desc='p', pbar_position=0):
+def enforce_iterative(nc, all_network_keys, n=1, configs=None, pbar_desc='p', pbar_position=0):
     """Retry enforcement without constructing a second, wrongly typed IO."""
     last = (False, {}, all_network_keys)
     for _ in range(n + 1):
@@ -73,18 +74,20 @@ def main(verbose,\
         dd=utility_base.update_json(network_config_paths_file_, io_group, config)
         if io_group != control_io_group:
             raise RuntimeError('PACMAN configuration/io_group changed during startup')
-        if asic_family in ('2d', 3):
-            if verbose: print('loading network_v2b') 
-            c = network_base.network_v2b(
+        if asic_family == '2d':
+            if verbose: print('loading FSD v2d network')
+            c = network_base_FSD.network_v2b(
                 config, tiles=tiles, io_group=io_group,
-                pacman_config=pacman_config, asic_version=asic_family,
+                pacman_config=pacman_config,
                 packet_family=packet_family,
             )
-        
-        elif io_group_asic_version_[io_group] in [2, 'lightpix-1']:
-            if verbose: print('loading network_v2a')
-            c = network_base.network_v2a(config, tiles=tiles, io_group=io_group, pacman_config=pacman_config) 
-            if verbose: print('done') 
+        elif asic_family == 3:
+            if verbose: print('loading Rev5 v3 network')
+            c = network_base_FSD_v3.network_v3(
+                config, tiles=tiles, io_group=io_group,
+                pacman_config=pacman_config,
+                packet_family=packet_family,
+            )
         all_network_keys += enforce_parallel.get_chips_by_io_group_io_channel(config, tiles)
         
         _tiles = []

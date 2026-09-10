@@ -2,11 +2,16 @@ import unittest
 import json
 import tempfile
 
-from base.asic_family import normalize_asic_family, packet_family_for_asic
+from base.asic_family import (
+    normalize_asic_family,
+    packet_family_for_asic,
+    uart_clock_ratio_for_asic,
+)
 from base.hijinks import (
     DEAD_LOGICAL_CHANNELS,
     logical_to_physical_uart,
     physical_rx_mask,
+    physical_uart_clock_register,
 )
 from base.network_config import root_only_network, validate_external_roots
 
@@ -33,6 +38,8 @@ class FamilyPolicyTest(unittest.TestCase):
         self.assertEqual(normalize_asic_family(3), 3)
         self.assertEqual(packet_family_for_asic("2d"), 2)
         self.assertEqual(packet_family_for_asic(3), 3)
+        self.assertEqual(uart_clock_ratio_for_asic("2d"), 2)
+        self.assertEqual(uart_clock_ratio_for_asic(3), 1)
 
     def test_unknown_family_rejected(self):
         with self.assertRaises(ValueError):
@@ -96,6 +103,51 @@ class HijinksMappingTest(unittest.TestCase):
         self.assertEqual(io.clock_calls, [(2, 30, 1)])
         pacman_base.set_packet_delay(io, 2, 37, 0xFF)
         self.assertEqual(io.registers[(2, 0x20014)], 0xFF5A)
+
+        pacman_base.set_all_packet_delays(io, 2, 0xFF)
+        delay_addresses = {
+            address for io_group, address in io.registers if io_group == 2
+            and 0x03014 <= address <= 0x22014
+        }
+        self.assertEqual(len(delay_addresses), 32)
+
+        io.clock_calls.clear()
+        pacman_base.configure_hijinks_uart_infrastructure(
+            io, 1, "2d", [25, 26, 27, 28]
+        )
+        self.assertEqual(io.registers[(1, 0x18)], 0x3FF)
+        self.assertEqual(io.clock_calls, [(1, 21, 2), (1, 22, 2), (1, 23, 2)])
+        io.clock_calls.clear()
+        pacman_base.configure_hijinks_uart_infrastructure(
+            io, 2, 3, [37, 38, 39, 40]
+        )
+        self.assertEqual(io.clock_calls, [(2, 30, 1), (2, 31, 1), (2, 32, 1)])
+
+    def test_persistent_uart_clock_registers(self):
+        self.assertEqual(physical_uart_clock_register(21), 0x17010)
+        self.assertEqual(physical_uart_clock_register(22), 0x18010)
+        self.assertEqual(physical_uart_clock_register(23), 0x19010)
+        self.assertEqual(physical_uart_clock_register(30), 0x20010)
+
+    def test_fsd_v2d_root_return_path(self):
+        try:
+            from larpix import Controller, Key
+            from base.network_base_FSD import configure_root_chip
+        except ModuleNotFoundError as error:
+            if error.name == "larpix":
+                self.skipTest("larpix-control is not installed")
+            raise
+        controller = Controller()
+        key = Key(1, 25, 21)
+        controller.add_chip(key, version="2d")
+        controller.write_configuration = lambda *args, **kwargs: None
+        configure_root_chip(controller, key, "2d", 0, 0, 15, 2, 8)
+        config = controller[key].config
+        self.assertEqual(config.enable_posi, [0, 0, 0, 1])
+        self.assertEqual(config.enable_piso_downstream, [0, 0, 1, 0])
+        self.assertEqual(config.enable_piso_upstream, [0, 0, 0, 0])
+        self.assertEqual(config.i_tx_diff2, 0)
+        self.assertEqual(config.tx_slices2, 15)
 
 
 class NetworkConfigTest(unittest.TestCase):

@@ -7,7 +7,7 @@
 import larpix
 import larpix.io
 from base import pacman_base
-from base import network_base
+from base import network_base_FSD as network_base
 from base import utility_base
 from base import generate_config
 import argparse
@@ -30,8 +30,8 @@ _default_file_prefix=None
 _default_disable_logger=True
 _default_verbose=False
 _default_ref_current_trim=0
-_default_tx_diff=0
-_default_tx_slice=15
+_default_tx_diff=4
+_default_tx_slice=7
 _default_r_term=2
 _default_i_rx=8
 _default_recheck=False
@@ -53,11 +53,16 @@ def main(io_group, file_prefix=_default_file_prefix, \
         raise ValueError('--pacman_config is required')
     if io_group_asic_version_[io_group] != '2d':
         raise ValueError(f'IOG {io_group} is not configured as v2d')
+    reset_tiles = [pacman_tile] if pacman_tile is not None else io_group_pacman_tile_[io_group]
+    active_channels = utility_base.tile_to_io_channel(reset_tiles)
     c = larpix.Controller()
     c.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=pacman_config, asic_version=2)
-    c.io.reset_larpix(length=4096*4, io_group=io_group) #2048 
+    pacman_base.configure_hijinks_uart_infrastructure(
+        c.io, io_group, '2d', active_channels
+    )
+    c.io.reset_tiles(reset_tiles, length=4096*4, io_group=io_group)
     time.sleep(4096*4*1e-6)
-    c.io.reset_larpix(length=4096*4, io_group=io_group) #2048 
+    c.io.reset_tiles(reset_tiles, length=4096*4, io_group=io_group)
     time.sleep(4096*4*1e-6)
 
     _file_prefix = file_prefix
@@ -89,11 +94,6 @@ def main(io_group, file_prefix=_default_file_prefix, \
                     if io_channel in pacman_base.DEAD_LOGICAL_CHANNELS:
                         print(f'skipping dead logical channel {io_channel}')
                         continue
-                    pacman_base.set_packet_delay(c.io, iog, io_channel)
-                    # The bench-proven FSD v2d path runs at a ratio of 10.
-                    # Hijinks register operations use the mapped physical UART.
-                    pacman_base.set_uart_clock_ratio(c.io, iog, io_channel, 10)
-                    pacman_base.enable_pacman_uart_from_io_channels(c.io, iog, [io_channel])
                     cid =  v2d_root_ids[ (io_channel-1) % 4]
                     network_base.network_ext_node_from_tuple(c, iog, io_channel, cid)
                     candidate_root = network_base.setup_root(c, c.io, iog, \
@@ -118,17 +118,21 @@ def main(io_group, file_prefix=_default_file_prefix, \
                                              iog_tile_to_root_keys[iog_tile], \
                                              verbose, \
                                              io_group_asic_version_[iog], ref_current_trim, \
-                                             tx_diff, tx_slice, r_term, i_rx, exclude=iog_exclude[iog])
+                                             tx_diff, tx_slice, r_term, i_rx,
+                                             exclude=iog_exclude[iog],
+                                             exclude_links=iog_exclude_links[iog])
                     out_of_network=network_base.iterate_waitlist(c, c.io, iog, \
                                                              utility_base.tile_to_io_channel([tile]),
                                                              verbose, \
                                                              io_group_asic_version_[iog], \
                                                              ref_current_trim,\
                                                              tx_diff, tx_slice, \
-                                                             r_term, i_rx, exclude=iog_exclude[iog])
+                                                             r_term, i_rx,
+                                                             exclude=iog_exclude[iog],
+                                                             exclude_links=iog_exclude_links[iog])
                     unconfigured.extend(out_of_network)
-                if _file_prefix is None: file_prefix='iog_{}-tile_{}-hydra-network'.format(iog, tile) 
-                network_file = network_base.write_network_to_file(c, file_prefix, {io_group : [tile] },\
+                output_prefix = _file_prefix or 'iog_{}-tile_{}'.format(iog, tile)
+                network_file = network_base.write_network_to_file(c, output_prefix, {io_group : [tile] },\
                                        unconfigured, asic_version='2d')
 
             return c, c.io

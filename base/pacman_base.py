@@ -28,9 +28,12 @@ from base.hijinks import (
     DEAD_LOGICAL_CHANNELS, PACKET_DELAY_BASE, PACKET_DELAY_STRIDE,
     RX_MASK_REGISTER, logical_to_physical_uart, physical_rx_mask,
 )
+from base.asic_family import uart_clock_ratio_for_asic
 
 
 def enable_pacman_uart_from_io_channels(io, io_group, io_channels):
+    if isinstance(io_channels, int):
+        io_channels = [io_channels]
     physical = [logical_to_physical_uart(channel) for channel in io_channels]
     mask = physical_rx_mask(physical)
     io.set_reg(RX_MASK_REGISTER, mask, io_group=io_group)
@@ -61,6 +64,34 @@ def set_packet_delay(io, io_group, logical_channel, delay=0xFF):
     new = (old & 0xFF) | (delay << 8)
     io.set_reg(register, new, io_group=io_group)
     return new
+
+
+def set_all_packet_delays(io, io_group, delay=0xFF):
+    """Set the Rev5 packet delay on all 32 physical UARTs."""
+    if not 0 <= delay <= 0xFF:
+        raise ValueError("Packet delay must fit in eight bits")
+    for physical in range(1, 33):
+        register = PACKET_DELAY_BASE + (physical - 1) * PACKET_DELAY_STRIDE
+        old = io.get_reg(register, io_group=io_group)
+        io.set_reg(register, (old & 0xFF) | (delay << 8), io_group=io_group)
+
+
+def configure_hijinks_uart_infrastructure(io, io_group, asic_family,
+                                          logical_channels=()):
+    """Apply PACMAN-side settings required before ASIC networking.
+
+    Register 0x18 is the ten-tile synchronization mask on Rev5. Packet delay
+    is physical-UART indexed for both families. The proven v3 path also needs
+    clock ratios are persistent PACMAN state, so both families are written
+    deterministically: v2d uses 2 and v3 uses 1.
+    """
+    io.set_reg(0x18, 0x3FF, io_group=io_group)
+    set_all_packet_delays(io, io_group)
+    ratio = uart_clock_ratio_for_asic(asic_family)
+    for logical_channel in logical_channels:
+        if logical_channel in DEAD_LOGICAL_CHANNELS:
+            continue
+        set_uart_clock_ratio(io, io_group, logical_channel, ratio)
 
 def invert_pacman_uart(io, io_group, asic_version, tile):
     if asic_version!='2b': return

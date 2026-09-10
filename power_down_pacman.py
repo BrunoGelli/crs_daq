@@ -10,7 +10,7 @@ from base import pacman_base
 from runenv import runenv as RUN
 
 
-def main(pacman_config):
+def main(pacman_config, verbose=False):
     io_group, _, packet_family = control_io_settings(pacman_config)
     if RUN.iog_pacman_version_[io_group] != "v1rev5":
         raise ValueError("The CERN power-down path supports Rev5 PACMANs only")
@@ -19,6 +19,8 @@ def main(pacman_config):
         asic_version=packet_family,
     )
     try:
+        if verbose:
+            print(f"IOG {io_group}: disabling Rev5 RX, tile power, DACs, and MCLK")
         pacman_base.disable_all_pacman_uart(io, io_group)
         io.set_reg(0x10, 0, io_group=io_group)
         for tile in range(1, 11):
@@ -36,4 +38,5 @@ def main(pacman_config):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pacman_config", required=True)
+    parser.add_argument("--verbose", "-v", action="store_true")
     main(**vars(parser.parse_args()))

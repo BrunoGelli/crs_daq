@@ -7,6 +7,34 @@ Run from the repository root with the bench-proven larpix-control release
 
 ## Safe validation ladder
 
+### Current hardware gate: v2d primitives only
+
+UART ratios are persistent PACMAN state. Establish and verify the measured
+v2d values before powering/networking the tile:
+
+```bash
+python tools/cern/uart_clock.py --config io/pacman_io1.json \
+  --logical-channels 25 26 27 --set-expected
+python tools/cern/uart_clock.py --config io/pacman_io1.json \
+  --logical-channels 25 26 27
+```
+
+Expected mappings/readbacks are logical 25 → physical 21/register `0x17010`,
+logical 26 → physical 22/register `0x18010`, and logical 27 → physical
+23/register `0x19010`, all with value `2`. Then run only the v2d primitive:
+
+```bash
+python configure_pacman.py --pacman_config io/pacman_io1.json \
+  --verbose --settle 1.0
+python hydra_v2d.py --io_group 1 --pacman_tile 7 \
+  --pacman_config io/pacman_io1.json --verbose
+```
+
+The root diagnostic must show downstream `[0,0,1,0]`, roots 21/61/101 must
+configure, logical 28 must be skipped, and discovery must finish with zero
+non-configured chips. Stop here and report the result before testing the v3 or
+higher-level workflow.
+
 Power/configure the two Rev5 boards independently:
 
 ```bash
@@ -77,3 +105,12 @@ Inspect the raw message headers and confirm both `io_group` values before
 family-aware offline decoding. Decode IOG 1 payloads as `Packet_v2` and IOG 2
 payloads as `Packet_v3`; never feed the aggregate file to one parsed packet
 family.
+
+## Expected v2d root bootstrap diagnostic
+
+The FSD donor root return path is intentionally `enable_posi=[0,0,0,1]` and
+`enable_piso_downstream=[0,0,1,0]`. Seeing downstream `[1,0,0,0]` identifies
+the obsolete 2x2 UART orientation and is a failure. `configure_pacman.py` and
+the network loaders also program the Rev5 sync mask and all 32 packet-delay
+registers, so each networking command can establish its required PACMAN-side
+infrastructure explicitly.

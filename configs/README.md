@@ -17,3 +17,7 @@ python hydra_v3.py --config io/pacman_io2.json --io-group 2 \
 `controller_config.json` maps IOG 1 and IOG 2 to those generated files.
 Generated network and ASIC configuration files are bench artifacts and should
 not be committed until they have been reviewed as known-good hardware state.
+
+Only `io/pacman_io1.json`, `io/pacman_io2.json`, and aggregate raw-recording
+`io/pacman.json` are supported. Historical IOG 3-8/module PACMAN files were
+removed because their addresses and ASIC families do not describe this bench.

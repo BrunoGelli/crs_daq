@@ -53,6 +53,12 @@ def main(verbose=False, pacman_config="io/pacman.json", settle=0.5):
     time.sleep(settle)
     io.reset_larpix(length=RESET_CYCLES, io_group=io_group)
     io.set_reg(0x2014, 0xFFFFFFFF, io_group=io_group)
+    logical_channels = [
+        channel for tile in tiles for channel in range(4 * tile - 3, 4 * tile + 1)
+    ]
+    pacman_base.configure_hijinks_uart_infrastructure(
+        io, io_group, asic_family, logical_channels
+    )
 
     for tile in tiles:
         offset = tile - 1
