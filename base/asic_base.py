@@ -16,7 +16,7 @@ v2a_nonrouted_channels=[6, 7, 8, 9, 22, 23, 24, 25, 38, 39, 40, 54, 55, 56, 57]
 
 def regulate_rate_fractional(c, io, io_group, set_rate, disable, sample_time=0.5, ioch=None):
     return disable
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=True
     io.double_send_packets=True
     pacman_tile = []
@@ -60,7 +60,7 @@ def regulate_rate_fractional(c, io, io_group, set_rate, disable, sample_time=0.5
         for key in disable.keys(): new_disable[str(key)]=disable[key]
         with open(dname, 'w') as f: json.dump(new_disable, f)
         if count==0: flag=False
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     c.reads=[]
@@ -68,7 +68,7 @@ def regulate_rate_fractional(c, io, io_group, set_rate, disable, sample_time=0.5
 
 
 def regulate_rate(c, io, io_group, set_rate, disable, sample_time=0.5):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=True
     io.double_send_packets=True
     pacman_tile = utility_base.all_chip_key_to_tile(c, io_group)
@@ -93,7 +93,7 @@ def regulate_rate(c, io, io_group, set_rate, disable, sample_time=0.5):
                 print('DISABLE ',chip_key,'  ',channel,'\trate: ',rate,' Hz')
         c.reads=[]
         if count==0: flag=False
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     c.reads=[]
@@ -126,7 +126,7 @@ def enable_io(c, io, io_group):
 
 
 def disable_io(c, io, io_group):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
 
@@ -254,7 +254,7 @@ def toggle_pixel_trim_dac(c, io, io_group, disable, set_rate, \
               ' processing time %.3f seconds\n\n'%timeEnd)
     c.reads=[]
     #utility_base.flush_data(c)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return disable
@@ -280,7 +280,7 @@ def global_dac_from_file(c, global_json):
 
 #@profile
 def enable_selftrigger_config(c, io, io_group, periodic_reset_cycles=64):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     chip_config_pairs=[]
     for chip_key, chip in c.chips.items():
         initial_config=deepcopy(chip.config)
@@ -302,7 +302,7 @@ def enable_selftrigger_config(c, io, io_group, periodic_reset_cycles=64):
     ok, diff = c.enforce_configuration(list(c.chips.keys()), timeout=0.01, \
                                        connection_delay=0.01, \
                                        n=10, n_verify=10)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     c.reads=[]
@@ -333,7 +333,7 @@ def enable_pedestal_config_by_io_channel(c, io, chips, vref_dac=185, \
                                          vcm_dac=50, \
                                          periodic_trigger_cycles=100000, \
                                          periodic_reset_cycles=4096):
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -351,7 +351,7 @@ def enable_pedestal_config_by_io_channel(c, io, chips, vref_dac=185, \
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
         
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
@@ -370,7 +370,7 @@ def enable_pedestal_config_by_io_channel(c, io, chips, vref_dac=185, \
     else:
         print(all_diff)
 
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
@@ -380,7 +380,7 @@ def enable_pedestal_adc_burst_config_by_io_channel(c, io, chips, vref_dac=185, \
                                          periodic_trigger_cycles=2000000, \
                                          periodic_reset_cycles=4096, \
                                          adc_burst_length=255):
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -399,14 +399,14 @@ def enable_pedestal_adc_burst_config_by_io_channel(c, io, chips, vref_dac=185, \
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
         
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
                                                       connection_delay=0.01)
     for chip_key in chips:
         ok, diff = utility_base.reconcile_configuration(c, chip_key, False)
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
@@ -417,7 +417,7 @@ def debug_enable_response_trigger_config_by_io_channel(c, io, chips, global_dac,
                                                        vref_dac=185, vcm_dac=50, periodic_reset_cycles=6400, \
                                                        tx_diff=0, tx_slice=15):    
 
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in c.chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -445,21 +445,21 @@ def debug_enable_response_trigger_config_by_io_channel(c, io, chips, global_dac,
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
         
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
                                                       connection_delay=0.01)
     for chip_key in chips:
         ok, diff = utility_base.reconcile_configuration(c, chip_key, False)
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
 
 def debug_disable_response_trigger_config_by_io_channel(c, io, chips):
 
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in c.chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -468,14 +468,14 @@ def debug_disable_response_trigger_config_by_io_channel(c, io, chips):
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
         
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
                                                       connection_delay=0.01)
     for chip_key in chips:
         ok, diff = utility_base.reconcile_configuration(c, chip_key, False)
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
@@ -489,7 +489,7 @@ def enable_fixed_register_trigger_config_by_io_channel(c, io, chips,\
                                                  trim_dac=None, threshold_global=None, cryo=True):
 
     print('ENABLING CONFIG: trim_dac={}, global_threshold={}'.format(trim_dac, threshold_global) )
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -505,7 +505,7 @@ def enable_fixed_register_trigger_config_by_io_channel(c, io, chips,\
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
     print(2**(chips[0].io_channel-1)) 
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
@@ -521,7 +521,7 @@ def enable_fixed_register_trigger_config_by_io_channel(c, io, chips,\
             all_ok = ok
             all_diff.update(diff)
     
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return all_ok, all_diff
@@ -546,7 +546,7 @@ def enable_fixed_target_trigger_config_by_io_channel(c, io, chips, vref_dac=185,
     
     default_global_dac=int(sum([chip_global[kk] for kk in chip_global.keys()])/len(chip_global.keys()))#+8
     default_pixel_trim_dac = [20]*64
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -584,14 +584,14 @@ def enable_fixed_target_trigger_config_by_io_channel(c, io, chips, vref_dac=185,
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
         
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
                                                       connection_delay=0.01)
     for chip_key in chips:
         ok, diff = utility_base.reconcile_configuration(c, chip_key, False)
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
@@ -619,7 +619,7 @@ def enable_response_trigger_config_by_io_channel(c, io, chips, vref_dac=185, \
     
     default_global_dac=int(sum([chip_global[kk] for kk in chip_global.keys()])/len(chip_global.keys()))#+8
     default_pixel_trim_dac = [20]*64
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -659,7 +659,7 @@ def enable_response_trigger_config_by_io_channel(c, io, chips, vref_dac=185, \
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
         
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
@@ -682,7 +682,7 @@ def enable_response_trigger_config_by_io_channel(c, io, chips, vref_dac=185, \
     #                                   connection_delay=0.01, \
     #                                   n=10, n_verify=10) 
 
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return all_ok, all_diff
@@ -690,7 +690,7 @@ def enable_response_trigger_config_by_io_channel(c, io, chips, vref_dac=185, \
 
 def enable_leakage_current_config(c, io, io_group, vref_dac=255, vcm_dac=50, \
                                   periodic_trigger_cycles=100000):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     chip_config_pairs=[]
     for chip_key, chip in c.chips.items():
         initial_config=deepcopy(chip.config)
@@ -722,7 +722,7 @@ def enable_leakage_current_config(c, io, io_group, vref_dac=255, vcm_dac=50, \
         ok, diff = c.enforce_configuration(list(diff.keys()), timeout=0.05, \
                                        connection_delay=0.01, \
                                        n=10, n_verify=10)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
@@ -731,7 +731,7 @@ def enable_leakage_current_config(c, io, io_group, vref_dac=255, vcm_dac=50, \
 def enable_leakage_current_by_io_channel(c, io, chips, vref_dac=255, \
                                          vcm_dac=50, \
                                          periodic_trigger_cycles=100000):
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     chip_config_pairs=[]
     for chip_key in chips:
         initial_config=deepcopy(c[chip_key].config)
@@ -750,7 +750,7 @@ def enable_leakage_current_by_io_channel(c, io, chips, vref_dac=255, \
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
         
     chip_reg_pairs=c.differential_write_configuration(chip_config_pairs, \
                                                       write_read=0, \
@@ -758,7 +758,7 @@ def enable_leakage_current_by_io_channel(c, io, chips, vref_dac=255, \
     for chip_key in chips:
         ok, diff = utility_base.reconcile_configuration(c, chip_key, False)
     
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
@@ -766,7 +766,7 @@ def enable_leakage_current_by_io_channel(c, io, chips, vref_dac=255, \
 
 
 def disable_leakage_current_config(c, io, io_group, periodic_reset_cycles):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     
     chip_config_pairs=[]
     for chip_key, chip in c.chips.items():
@@ -790,7 +790,7 @@ def disable_leakage_current_config(c, io, io_group, periodic_reset_cycles):
     ok, diff = c.enforce_configuration(list(c.chips.keys()), timeout=0.01, \
                                        connection_delay=0.01, \
                                        n=10, n_verify=10)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False    
     return ok, diff
@@ -798,7 +798,7 @@ def disable_leakage_current_config(c, io, io_group, periodic_reset_cycles):
 
     
 def disable_pedestal_config(c, io, io_group, periodic_reset_cycles=4096):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     chip_config_pairs=[]
     for chip_key, chip in c.chips.items():
         initial_config=deepcopy(chip.config)
@@ -819,7 +819,7 @@ def disable_pedestal_config(c, io, io_group, periodic_reset_cycles=4096):
     ok, diff = c.enforce_configuration(list(c.chips.keys()), timeout=0.01, \
                                        connection_delay=0.01, \
                                        n=10, n_verify=10)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     return ok, diff
@@ -829,7 +829,7 @@ def disable_pedestal_config(c, io, io_group, periodic_reset_cycles=4096):
 
 
 def enable_periodic_triggering(c, io, io_group, disabled):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     registers_to_write=list(range(66,74))+\
         list(range(131,139))+list(range(155,163))
     chip_config_pairs=[]
@@ -854,7 +854,7 @@ def enable_periodic_triggering(c, io, io_group, disabled):
 #    ok, diff = c.enforce_configuration(list(c.chips.keys()), timeout=0.01, \
 #                                       connection_delay=0.01, \
 #                                       n=10, n_verify=10)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     ok=True
@@ -864,7 +864,7 @@ def enable_periodic_triggering(c, io, io_group, disabled):
 
 
 def enable_self_triggering(c, io, io_group, disabled, set_rate=None):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     registers_to_write=list(range(66,74))+\
         list(range(131,139))+list(range(155,163))
     chip_config_pairs=[]
@@ -916,7 +916,7 @@ def enable_self_triggering(c, io, io_group, disabled, set_rate=None):
     #                                   connection_delay=0.01, \
     #                                   n=10, n_verify=10)
     #print(ok, diff)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     ok=True
@@ -925,7 +925,7 @@ def enable_self_triggering(c, io, io_group, disabled, set_rate=None):
 
 
 def enable_periodic_triggering_by_io_channel(c, io, chips, disabled):
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     registers_to_write=list(range(66,74))+\
         list(range(131,139))+list(range(155,163))
     chip_config_pairs=[]
@@ -942,11 +942,11 @@ def enable_periodic_triggering_by_io_channel(c, io, chips, disabled):
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
     c.multi_write_configuration(chip_config_pairs)
     for chip_key in c.chips:
         ok, diff = utility_base.reconcile_configuration(c, chip_key, False)
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     return ok, diff
@@ -954,7 +954,7 @@ def enable_periodic_triggering_by_io_channel(c, io, chips, disabled):
 
 
 def enable_self_triggering_by_io_channel(c, io, chips, disabled):
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     registers_to_write=list(range(66,74))+\
         list(range(131,139))+list(range(155,163))
     chip_config_pairs=[]
@@ -969,11 +969,11 @@ def enable_self_triggering_by_io_channel(c, io, chips, disabled):
 
     io.group_packets_by_io_group=True
     io.double_send_packets=True
-    io.set_reg(0x18, 2**(chips[0].io_channel-1), io_group=chips[0].io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, chips[0].io_group, [chips[0].io_channel])
     c.multi_write_configuration(chip_config_pairs)
     for chip_key in c.chips:
         ok, diff = utility_base.reconcile_configuration(c, chip_key, False)
-    io.set_reg(0x18, 0, io_group=chips[0].io_group)
+    pacman_base.disable_all_pacman_uart(io, chips[0].io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     return ok, diff
@@ -981,7 +981,7 @@ def enable_self_triggering_by_io_channel(c, io, chips, disabled):
 
 
 def disable_periodic_triggering(c, io, io_group):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     registers_to_write=list(range(66,74))+\
         list(range(131,139))+list(range(155,163))
     chip_config_pairs=[]
@@ -999,7 +999,7 @@ def disable_periodic_triggering(c, io, io_group):
     ok, diff = c.enforce_configuration(list(c.chips.keys()), timeout=0.01, \
                                        connection_delay=0.01, \
                                        n=10, n_verify=10)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     return ok, diff        
@@ -1007,7 +1007,7 @@ def disable_periodic_triggering(c, io, io_group):
 
 
 def enable_csa_trigger(c, io, io_group, disable):
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     chip_register_pairs=[]
     for ck in disable.keys():
         if ck not in c.chips: continue
@@ -1023,7 +1023,7 @@ def enable_csa_trigger(c, io, io_group, disable):
     pacman_tile = utility_base.all_chip_key_to_tile(c, io_group)
     pacman_base.enable_pacman_uart_from_tile(io, io_group, pacman_tile)
     c.multi_write_configuration(chip_register_pairs, connection_delay=0.001)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
     io.group_packets_by_io_group=False
     io.double_send_packets=False
     return

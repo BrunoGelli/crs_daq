@@ -5,6 +5,7 @@ from base import asic_base
 import json
 import time
 from base import pacman_base
+from base.network_config import validate_external_roots
 import numpy as np
 #from timebudget import timebudget
 #import asyncio
@@ -72,14 +73,14 @@ def configure_chip_id(c, io_group, ioc, chip_id, asic_version):
 #@timebudget
 def configure_root_chip(c, chip_key, asic_version, ref_current_trim, \
                         tx_diff, tx_slice, r_term, i_rx):
-    if asic_version=='2b':
+    if asic_version in ('2b', '2d', 3):
         c[chip_key].config.ref_current_trim=ref_current_trim
         c.write_configuration(chip_key,'ref_current_trim')
         registers=[]
         for uart in range(4):
             setattr(c[chip_key].config,f'i_rx{uart}', i_rx)
             registers.append(c[chip_key].config.register_map[f'i_rx{uart}'])
-            setattr(c[chip_key].config,f'r_term{uart}', i_rx)
+            setattr(c[chip_key].config,f'r_term{uart}', r_term)
             registers.append(c[chip_key].config.register_map[f'r_term{uart}'])
         for reg in registers: c.write_configuration(chip_key, reg)
         for reg in registers: c.write_configuration(chip_key, reg)
@@ -109,19 +110,19 @@ def setup_root(c, io, io_group, io_channel, chip_id, verbose, asic_version, \
     configure_root_chip(c, chip_key, asic_version, ref_current_trim, \
                         tx_diff, tx_slice, r_term, i_rx)
     
-    io.set_reg(0x18, 2**(io_channel-1), io_group=io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, io_group, [io_channel])
     print('reconcile config')
     print(chip_key, 'downstream enabled:', c[chip_key].config.enable_piso_downstream)
     ok, diff = utility_base.reconcile_configuration(c, chip_key, verbose)
     if ok:
         if verbose: print(chip_key,' configured')
-#        io.set_reg(0x18, 0, io_group=io_group)
+#        pacman_base.disable_all_pacman_uart(io, io_group)
         return chip_key
     if not ok:
         if verbose: print(chip_key,' NOT configured')
         uart_base.reset_uarts(c, chip_key, verbose)
         c.remove_chip(chip_key)
-#        io.set_reg(0x18, 0, io_group=io_group)
+#        pacman_base.disable_all_pacman_uart(io, io_group)
         return None
 
 async def async_setup_root(c, io, io_group, ioc, chip_id, verbose, \
@@ -140,12 +141,12 @@ async def setup_root_async(c, io, io_group, ioc, chip_id, verbose, \
     asic_base.disable_chip_csa_trigger(c, chip_key)
     configure_root_chip(c, chip_key, asic_version, ref_current_trim, \
                         tx_diff, tx_slice, r_term, i_rx)
-    io.set_reg(0x18, 2**(ioc-1), io_group=io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, io_group, [ioc])
     ok = await utility_base.reconcile_configuration_bool(c, chip_key, verbose)
     #ok, diff = await utility_base.reconcile_configuration(c, chip_key, verbose)
     if ok:
         if verbose: print(chip_key,' configured')
-        io.set_reg(0x18, 0, io_group=io_group)
+        pacman_base.disable_all_pacman_uart(io, io_group)
         return await chip_key
     if not ok:
         if verbose: print(chip_key,' NOT configured')
@@ -156,7 +157,7 @@ async def setup_root_async(c, io, io_group, ioc, chip_id, verbose, \
         #                                                            chip_key, \
 #                                                                    verbose)
         c.remove_chip(chip_key)
-        io.set_reg(0x18, 0, io_group=io_group)
+        pacman_base.disable_all_pacman_uart(io, io_group)
         return await None
     return await None
 
@@ -217,7 +218,7 @@ def initial_network(c, io, io_group, root_keys, verbose, asic_version,\
             print('\n CONFIGURED: ', cnt_configured, \
                   '\t UNCONFIGURED: ',cnt_unconfigured)
 
-        io.set_reg(0x18, 2**(root.io_channel-1), io_group=io_group)
+        pacman_base.enable_pacman_uart_from_io_channels(io, io_group, [root.io_channel])
         ok, diff = utility_base.reconcile_configuration(c, root, verbose)
         if not ok: print(diff)
         if ok:
@@ -230,7 +231,7 @@ def initial_network(c, io, io_group, root_keys, verbose, asic_version,\
             continue
         print(root,'\tconfigured: ',cnt_configured, \
               '\t unconfigured: ',cnt_unconfigured)
-        io.set_reg(0x18, 0, io_group=io_group)
+        pacman_base.disable_all_pacman_uart(io, io_group)
 
         bail=False
         last_chip_id = root.chip_id
@@ -320,7 +321,7 @@ def initial_network(c, io, io_group, root_keys, verbose, asic_version,\
                         cnt_unconfigured=len(waitlist)
                         print(daughter,'\tconfigured: ',cnt_configured,\
                               '\t unconfigured ',cnt_unconfigured)
-                io.set_reg(0x18, 0, io_group=io_group)
+                pacman_base.disable_all_pacman_uart(io, io_group)
             #last_chip_id=daughter.chip_id
         firstIteration=False
     return
@@ -332,7 +333,7 @@ def initial_network_from_root(c, io, io_group, root_key, verbose, asic_version,\
     root_ioc=root_key.io_channel
     waitlist=set()
     cnt_configured, cnt_unconfigured=0,0
-    io.set_reg(0x18, 2**(root_key.io_channel-1), io_group=io_group)
+    pacman_base.enable_pacman_uart_from_io_channels(io, io_group, [root_key.io_channel])
     ok, diff = utility_base.reconcile_configuration(c, root_key, verbose)
     if ok:
         cnt_configured+=1
@@ -344,7 +345,7 @@ def initial_network_from_root(c, io, io_group, root_key, verbose, asic_version,\
         return
     print(root_key,'\tconfigured: ',cnt_configured, \
           '\t unconfigured: ',cnt_unconfigured)
-    io.set_reg(0x18, 0, io_group=io_group)
+    pacman_base.disable_all_pacman_uart(io, io_group)
 
     bail=False
     last_chip_id = root_key.chip_id
@@ -414,7 +415,7 @@ def initial_network_from_root(c, io, io_group, root_key, verbose, asic_version,\
                     cnt_unconfigured=len(waitlist)
                     print(daughter,'\tconfigured: ',cnt_configured,\
                           '\t unconfigured ',cnt_unconfigured)
-            io.set_reg(0x18, 0, io_group=io_group)
+            pacman_base.disable_all_pacman_uart(io, io_group)
             last_chip_id=daughter.chip_id
     return
 
@@ -467,7 +468,7 @@ def iterate_waitlist(c, io, io_group, io_channels, verbose, asic_version,\
                           'failed to configure')
                     uart_base.disable_parent_piso_us(c, parent, daughter, \
                                                      verbose, tx_diff, tx_slice)
-                    io.set_reg(0x18, 0, io_group=io_group)
+                    pacman_base.disable_all_pacman_uart(io, io_group)
                     continue
 
                 ok, diff, piso = uart_base.setup_daughter(c, io, parent, \
@@ -490,7 +491,7 @@ def iterate_waitlist(c, io, io_group, io_channels, verbose, asic_version,\
                                                   verbose)
                     c.remove_chip(daughter)
                     outstanding.append((daughter, piso))
-                io.set_reg(0x18, 0, io_group=io_group)
+                pacman_base.disable_all_pacman_uart(io, io_group)
 
         if n_waitlist==len(waitlist):
             print('\n',len(waitlist),' NON-CONFIGURED chips\n',waitlist,'\n')
@@ -608,15 +609,26 @@ def write_network_to_file(c, file_prefix, io_group_pacman_tile, unconfigured, \
 
     return fname
 
-def network_v2b(controller_config, tiles=None, io_group=None, pacman_config=None, verbose=False, **kwargs):
+def network_v2b(controller_config, tiles=None, io_group=None, pacman_config=None,
+                verbose=False, asic_version='2d', packet_family=2, **kwargs):
 
     c = larpix.Controller()
-    c.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=pacman_config)
+    c.io = larpix.io.PACMAN_IO(
+        relaxed=True, config_filepath=pacman_config,
+        asic_version=packet_family,
+    )
     
     if controller_config is None:
         raise RuntimeError('No controller config specified!')
     else:
+        validate_external_roots(controller_config)
         c.load(controller_config)
+    wrong_versions = [key for key in c.chips if c[key].asic_version != asic_version]
+    if wrong_versions:
+        raise ValueError(
+            f'{controller_config} contains chips incompatible with ASIC family '
+            f'{asic_version!r}: {wrong_versions[:3]}'
+        )
     
     for io_group, io_channels in c.network.items():
         if tiles is None :    
@@ -648,15 +660,21 @@ def network_v2b(controller_config, tiles=None, io_group=None, pacman_config=None
     for chip_key in c.chips.keys():
         if not tiles is None:
             if not utility_base.io_channel_to_tile(chip_key.io_channel) in tiles: continue
-        c[chip_key].config.ref_current_trim=ref_current_trim
-        c.write_configuration(chip_key,'ref_current_trim')
+        if hasattr(c[chip_key].config, 'ref_current_trim'):
+            c[chip_key].config.ref_current_trim=ref_current_trim
+            c.write_configuration(chip_key,'ref_current_trim')
         registers=[]
         for uart in range(4):
-            setattr(c[chip_key].config,f'i_rx{uart}', i_rx)
+            rx_value = 3 if asic_version == 3 else i_rx
+            term_value = 7 if asic_version == 3 else r_term
+            setattr(c[chip_key].config,f'i_rx{uart}', rx_value)
             registers.append(c[chip_key].config.register_map[f'i_rx{uart}'])
-            setattr(c[chip_key].config,f'r_term{uart}', i_rx)
+            setattr(c[chip_key].config,f'r_term{uart}', term_value)
             registers.append(c[chip_key].config.register_map[f'r_term{uart}'])
-            setattr(c[chip_key].config,f'i_tx_diff{uart}', i_tx_diff)
+            if asic_version == 3:
+                setattr(c[chip_key].config, f'v_cm_lvds_tx{uart}', 5)
+                registers.append(c[chip_key].config.register_map[f'v_cm_lvds_tx{uart}'])
+            setattr(c[chip_key].config,f'i_tx_diff{uart}', 7 if asic_version == 3 else i_tx_diff)
             registers.append(c[chip_key].config.register_map[f'i_tx_diff{uart}'])
             setattr(c[chip_key].config,f'tx_slices{uart}', tx_slices)
             registers.append(c[chip_key].config.register_map[f'tx_slices{uart}'])
@@ -670,10 +688,14 @@ def network_v2b(controller_config, tiles=None, io_group=None, pacman_config=None
 
     return c
 
-def network_v2a(controller_config, tiles=None, io_group=None, verbose=False, pacman_config=None,  **kwargs):
+def network_v2a(controller_config, tiles=None, io_group=None, verbose=False,
+                pacman_config=None, packet_family=2, **kwargs):
 
     c = larpix.Controller()
-    c.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=pacman_config)
+    c.io = larpix.io.PACMAN_IO(
+        relaxed=True, config_filepath=pacman_config,
+        asic_version=packet_family,
+    )
 
     if controller_config is None:
         raise RuntimeError('No controller config specified!')
