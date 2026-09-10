@@ -14,7 +14,7 @@ from runenv import runenv as RUN
 RESET_CYCLES = 4096
 
 
-def main(verbose=False, pacman_config="io/pacman.json"):
+def main(verbose=False, pacman_config="io/pacman.json", settle=0.5):
     io_group, asic_family, packet_family = control_io_settings(pacman_config)
     tiles = RUN.io_group_pacman_tile_[io_group]
     vdda = RUN.iog_VDDA_DAC[io_group]
@@ -48,6 +48,9 @@ def main(verbose=False, pacman_config="io/pacman.json"):
         tile_mask |= 1 << offset
 
     io.set_reg(0x10, tile_mask, io_group=io_group)
+    # Rev5 telemetry does not settle immediately after connecting a tile.
+    # Reading it too soon produced tens of mV despite correctly programmed DACs.
+    time.sleep(settle)
     io.reset_larpix(length=RESET_CYCLES, io_group=io_group)
     io.set_reg(0x2014, 0xFFFFFFFF, io_group=io_group)
 
@@ -70,4 +73,6 @@ if __name__ == "__main__":
     parser.add_argument("--pacman_config", required=True,
                         help="One-PACMAN JSON; aggregate configs are raw-only")
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--settle", type=float, default=0.5,
+                        help="seconds to wait before Rev5 power readback")
     main(**vars(parser.parse_args()))

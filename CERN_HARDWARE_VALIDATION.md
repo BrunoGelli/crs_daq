@@ -14,6 +14,9 @@ python configure_pacman.py --pacman_config io/pacman_io1.json --verbose
 python configure_pacman.py --pacman_config io/pacman_io2.json --verbose
 ```
 
+Rev5 telemetry is sampled after a 0.5-second settling delay. Use
+`--settle 1.0` if the first voltage readback is still transient.
+
 Repeat the authoritative semantic-register proof (the script restores values):
 
 ```bash
@@ -36,6 +39,12 @@ normal controller JSON:
 ```bash
 python hydra_v3.py --config io/pacman_io2.json --io-group 2 \
   --io-channel 37 --tile 10
+```
+
+Power down safely at any point with:
+
+```bash
+run/iog/power_down.sh all
 ```
 
 Network/enforce each family independently, then concurrently:

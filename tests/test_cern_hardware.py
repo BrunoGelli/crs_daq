@@ -1,4 +1,6 @@
 import unittest
+import json
+import tempfile
 
 from base.asic_family import normalize_asic_family, packet_family_for_asic
 from base.hijinks import (
@@ -6,6 +8,7 @@ from base.hijinks import (
     logical_to_physical_uart,
     physical_rx_mask,
 )
+from base.network_config import root_only_network, validate_external_roots
 
 
 class FakeIO:
@@ -93,6 +96,32 @@ class HijinksMappingTest(unittest.TestCase):
         self.assertEqual(io.clock_calls, [(2, 30, 1)])
         pacman_base.set_packet_delay(io, 2, 37, 0xFF)
         self.assertEqual(io.registers[(2, 0x20014)], 0xFF5A)
+
+
+class NetworkConfigTest(unittest.TestCase):
+    def test_root_graph_points_from_external_node_to_asic(self):
+        payload = root_only_network(2, 37, 1, "v3-root", 3)
+        nodes = payload["network"]["2"]["37"]["nodes"]
+        self.assertEqual(nodes[0]["chip_id"], "ext")
+        self.assertTrue(nodes[0]["root"])
+        self.assertEqual(nodes[0]["miso_us"], [None, None, None, 1])
+        self.assertEqual(nodes[1]["chip_id"], 1)
+
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".json") as output:
+            json.dump(payload, output)
+            output.flush()
+            self.assertEqual(validate_external_roots(output.name), payload)
+
+    def test_reversed_root_link_is_rejected(self):
+        payload = root_only_network(2, 37, 1, "v3-root", 3)
+        nodes = payload["network"]["2"]["37"]["nodes"]
+        nodes[0]["miso_us"] = [None, None, None, None]
+        nodes[1]["miso_us"] = [None, None, None, "ext"]
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".json") as output:
+            json.dump(payload, output)
+            output.flush()
+            with self.assertRaisesRegex(ValueError, "must point"):
+                validate_external_roots(output.name)
 
 
 if __name__ == "__main__":

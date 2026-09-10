@@ -6,6 +6,7 @@ import json
 
 from base import pacman_base
 from base.asic_family import control_io_settings
+from base.network_config import root_only_network
 
 from larpix import Controller, Key
 from larpix.io import PACMAN_IO
@@ -294,17 +295,9 @@ def main():
                 "PASS: ROOT CHIP COMMUNICATION WORKS"
             )
             prefix = args.file_prefix or f"iog_{iog}-tile_{args.tile}-hydra-network"
-            payload = {
-                "_config_type": "controller", "name": prefix,
-                "asic_version": 3, "layout": "10x16",
-                "network": {str(iog): {str(logical): {"nodes": [
-                    {"chip_id": 1, "root": True,
-                     "miso_us": [None, None, None, "ext"]}
-                ]}}, "miso_us_uart_map": [3, 0, 1, 2],
-                "miso_ds_uart_map": [1, 2, 3, 0],
-                "mosi_uart_map": [2, 3, 0, 1]},
-                "missing": {}
-            }
+            payload = root_only_network(
+                iog, logical, 1, prefix, asic_version=3, layout="10x16"
+            )
             with open(prefix + ".json", "w", encoding="utf-8") as output:
                 json.dump(payload, output, indent=4)
             print(f"network JSON: {prefix}.json")

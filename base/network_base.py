@@ -5,6 +5,7 @@ from base import asic_base
 import json
 import time
 from base import pacman_base
+from base.network_config import validate_external_roots
 import numpy as np
 #from timebudget import timebudget
 #import asyncio
@@ -620,6 +621,7 @@ def network_v2b(controller_config, tiles=None, io_group=None, pacman_config=None
     if controller_config is None:
         raise RuntimeError('No controller config specified!')
     else:
+        validate_external_roots(controller_config)
         c.load(controller_config)
     wrong_versions = [key for key in c.chips if c[key].asic_version != asic_version]
     if wrong_versions:

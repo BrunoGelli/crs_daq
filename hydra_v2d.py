@@ -82,13 +82,17 @@ def main(io_group, file_prefix=_default_file_prefix, \
                 tiles = [pacman_tile]
             for tile in tiles:
 
-                root_keys=[]        
+                root_keys=[]
+                unconfigured=[]
                 io_channels = utility_base.tile_to_io_channel([tile])
                 for io_channel in io_channels:
                     if io_channel in pacman_base.DEAD_LOGICAL_CHANNELS:
                         print(f'skipping dead logical channel {io_channel}')
                         continue
                     pacman_base.set_packet_delay(c.io, iog, io_channel)
+                    # The bench-proven FSD v2d path runs at a ratio of 10.
+                    # Hijinks register operations use the mapped physical UART.
+                    pacman_base.set_uart_clock_ratio(c.io, iog, io_channel, 10)
                     pacman_base.enable_pacman_uart_from_io_channels(c.io, iog, [io_channel])
                     cid =  v2d_root_ids[ (io_channel-1) % 4]
                     network_base.network_ext_node_from_tuple(c, iog, io_channel, cid)
@@ -101,6 +105,12 @@ def main(io_group, file_prefix=_default_file_prefix, \
            
                 print('ROOT KEYS: ',root_keys)
 
+                if not root_keys:
+                    raise RuntimeError(
+                        f'No v2d roots replied on IOG {iog}, tile {tile}; '
+                        'network JSON was not written'
+                    )
+
                 iog_tile_to_root_keys=utility_base.partition_chip_keys_by_io_group_tile(root_keys)
                 print(iog_tile_to_root_keys)
                 for iog_tile in iog_tile_to_root_keys.keys():
@@ -109,17 +119,14 @@ def main(io_group, file_prefix=_default_file_prefix, \
                                              verbose, \
                                              io_group_asic_version_[iog], ref_current_trim, \
                                              tx_diff, tx_slice, r_term, i_rx, exclude=iog_exclude[iog])
-                    unconfigured=[]
-                    if True:
-                            
-                        out_of_network=network_base.iterate_waitlist(c, c.io, iog, \
-                                                                 utility_base.tile_to_io_channel([tile]),
-                                                                 verbose, \
-                                                                 io_group_asic_version_[iog], \
-                                                                 ref_current_trim,\
-                                                                 tx_diff, tx_slice, \
-                                                                 r_term, i_rx, exclude=iog_exclude[iog])
-                        unconfigured.extend(out_of_network)
+                    out_of_network=network_base.iterate_waitlist(c, c.io, iog, \
+                                                             utility_base.tile_to_io_channel([tile]),
+                                                             verbose, \
+                                                             io_group_asic_version_[iog], \
+                                                             ref_current_trim,\
+                                                             tx_diff, tx_slice, \
+                                                             r_term, i_rx, exclude=iog_exclude[iog])
+                    unconfigured.extend(out_of_network)
                 if _file_prefix is None: file_prefix='iog_{}-tile_{}-hydra-network'.format(iog, tile) 
                 network_file = network_base.write_network_to_file(c, file_prefix, {io_group : [tile] },\
                                        unconfigured, asic_version='2d')
@@ -163,4 +170,3 @@ if __name__=='__main__':
                         help='''Receiver bias current DAC''')
     args = parser.parse_args()
     main(**vars(args))
-

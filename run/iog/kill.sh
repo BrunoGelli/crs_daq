@@ -1,38 +1,10 @@
 #!/usr/bin/env bash
-
-
+set -euo pipefail
 source .envrc
-
-if [[ "$1" == *"1"* ]]; then
-	kill $IOG1_PID
-fi
-
-if [[ "$1" == *"2"* ]]; then
-        kill $IOG2_PID
-fi
-
-if [[ "$1" == *"3"* ]]; then
-        kill $IOG3_PID
-fi
-
-if [[ "$1" == *"4"* ]]; then
-        kill $IOG4_PID
-fi
-
-if [[ "$1" == *"5"* ]]; then
-        kill $IOG5_PID
-fi
-
-if [[ "$1" == *"6"* ]]; then
-        kill $IOG6_PID
-fi
-
-if [[ "$1" == *"7"* ]]; then
-        kill $IOG7_PID
-fi
-
-if [[ "$1" == *"8"* ]]; then
-        kill $IOG8_PID
-fi
-
-
+selection="${1:-all}"
+case "$selection" in all) iogs=(1 2);; 1|2) iogs=("$selection");; *) echo "usage: $0 [all|1|2]" >&2; exit 2;; esac
+for iog in "${iogs[@]}"; do
+  var="IOG${iog}_PID"
+  pid="${!var:-0}"
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null; then kill "$pid"; fi
+done
