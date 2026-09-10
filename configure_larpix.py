@@ -9,6 +9,7 @@ from tqdm import tqdm
 from base import pacman_base
 from base import utility_base
 from base import enforce_parallel
+from base.asic_family import control_io_settings
 from base.utility_base import now
 import json
 import sys
@@ -32,9 +33,15 @@ def main(verbose, \
         pacman_configs = {}
         with open(pacman_config, 'r') as f:
             pacman_configs = json.load(f)
+        io_group, asic_family, packet_family = control_io_settings(pacman_config)
         
         c = larpix.Controller()
-        c.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=pacman_config)
+        c.io = larpix.io.PACMAN_IO(
+            relaxed=True, config_filepath=pacman_config,
+            asic_version=packet_family,
+        )
+        if verbose:
+            print(f'IOG {io_group}: ASIC {asic_family!r}, packet family {packet_family}')
         
         #list of network keys in order from root chip, for parallel configuration enforcement
         all_network_keys = []
@@ -118,4 +125,3 @@ if __name__=='__main__':
     parser.add_argument('--verbose', '-v', action='store_true',  default=_default_verbose)
     args=parser.parse_args()
     c = main(**vars(args))
-

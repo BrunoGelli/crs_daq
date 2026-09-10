@@ -1,8 +1,1 @@
-{
-    "_config_type": "io",
-    "io_class": "PACMAN_IO",
-    "io_group": [
-	[1, "192.168.197.86"]
-    ]
-    
-}
+{"_config_type":"io","io_class":"PACMAN_IO","io_group":[[1,"192.168.0.103"]]}
