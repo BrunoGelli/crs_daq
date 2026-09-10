@@ -3,6 +3,7 @@ warnings.filterwarnings("ignore")
 
 import larpix
 import argparse
+import json
 
 import sys
 
@@ -22,6 +23,7 @@ from signal import signal, SIGINT
 import subprocess
 import base.utility_base
 from base.utility_base import now
+from base.asic_family import family_for_io_group, packet_family_for_asic
 
 _default_file_count=-1
 _default_runtime=300
@@ -62,8 +64,26 @@ def main(file_count, runtime, message, packet, filename, file_tag, pacman_config
     # dump ASIC configs to temporary directory to embed in data files
     if not ignore_embed: os.system('./dump_temp_archive.sh &')
 
+    with open(pacman_config, 'r') as infile:
+        raw_iogs = json.load(infile).get('io_group', [])
+    if packet and len(raw_iogs) > 1:
+        raise ValueError(
+            'Parsed --packet output cannot represent mixed v2d/v3 data; '
+            'use the default raw acquisition mode'
+        )
+
     c = larpix.Controller()
-    c.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=pacman_config)
+    packet_family = 2
+    if len(raw_iogs) == 1:
+        packet_family = packet_family_for_asic(family_for_io_group(raw_iogs[0][0]))
+    # PACMAN_IO currently requires one family even though aggregate raw mode
+    # never parses ASIC payloads.  In that case this is constructor-only.
+    c.io = larpix.io.PACMAN_IO(
+        relaxed=True, config_filepath=pacman_config, asic_version=packet_family,
+    )
+    if not packet:
+        c.io.disable_packet_parsing = True
+        c.io.enable_raw_file_writing = True
 
     #data taking loop
     ctr=0

@@ -35,48 +35,7 @@ _default_tx_slice=15
 _default_r_term=2
 _default_i_rx=8
 _default_recheck=False
-v2b_root_ids=[21, 41, 71, 91]
-
-def _parse_csv_ints(value):
-    if value is None:
-        return None
-    values = []
-    for item in str(value).split(','):
-        item = item.strip()
-        if item:
-            values.append(int(item))
-    return sorted(set(values))
-
-def _excluded_chips_for_tile(io_group, tile):
-    try:
-        exclude_entry = iog_exclude.get(io_group, None)
-    except Exception:
-        return set()
-    if exclude_entry is None:
-        return set()
-    if isinstance(exclude_entry, dict):
-        excluded = exclude_entry.get(str(tile), exclude_entry.get(tile, []))
-    else:
-        excluded = exclude_entry
-    if excluded is None:
-        return set()
-    if isinstance(excluded, str):
-        excluded = [item.strip() for item in excluded.split(',') if item.strip()]
-    if isinstance(excluded, int):
-        excluded = [excluded]
-    return set(int(chip_id) for chip_id in excluded)
-
-def _exclude_for_network_base(io_group, tile):
-    return {str(tile): sorted(_excluded_chips_for_tile(io_group, tile))}
-
-def _ensure_empty_network_entries(c, iog, io_channels):
-    if not hasattr(c, 'network') or c.network is None:
-        c.network = {}
-    if iog not in c.network or c.network[iog] is None:
-        c.network[iog] = {}
-    for io_channel in io_channels:
-        if io_channel not in c.network[iog]:
-            c.network[iog][io_channel] = {'miso_us': [], 'miso_ds': [], 'mosi': []}
+v2d_root_ids=[21, 61, 101, 151]
 
 def main(io_group, file_prefix=_default_file_prefix, \
          disable_logger=_default_disable_logger, \
@@ -87,11 +46,15 @@ def main(io_group, file_prefix=_default_file_prefix, \
          r_term=_default_r_term, \
          i_rx=_default_i_rx,
          pacman_tile=None,\
-         io_channels=None,\
+         pacman_config=None,\
          **kwargs):
    
+    if pacman_config is None:
+        raise ValueError('--pacman_config is required')
+    if io_group_asic_version_[io_group] != '2d':
+        raise ValueError(f'IOG {io_group} is not configured as v2d')
     c = larpix.Controller()
-    c.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=f'io/pacman_io{io_group}.json')
+    c.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=pacman_config, asic_version=2)
     c.io.reset_larpix(length=4096*4, io_group=io_group) #2048 
     time.sleep(4096*4*1e-6)
     c.io.reset_larpix(length=4096*4, io_group=io_group) #2048 
@@ -111,33 +74,27 @@ def main(io_group, file_prefix=_default_file_prefix, \
                                        io_group_pacman_tile_[iog]) 
     
         print('Working on io_group={}'.format(iog))
-        if io_group_asic_version_[iog]=='2b':
+        if io_group_asic_version_[iog]=='2d':
             tiles=pacman_tile
             if pacman_tile is None:
                 tiles = io_group_pacman_tile_[iog]
             else:
                 tiles = [pacman_tile]
-            requested_io_channels = _parse_csv_ints(io_channels)
             for tile in tiles:
 
                 root_keys=[]
-                tile_io_channels = utility_base.tile_to_io_channel([tile])
-                if requested_io_channels is not None:
-                    invalid_io_channels = sorted(set(requested_io_channels) - set(tile_io_channels))
-                    if invalid_io_channels:
-                        raise RuntimeError(
-                            f'Requested io_channel(s) {invalid_io_channels} are not in tile {tile}; '
-                            f'valid channels are {tile_io_channels}'
-                        )
-                    tile_io_channels = [ioc for ioc in tile_io_channels if ioc in requested_io_channels]
-                tile_excluded_chips = _excluded_chips_for_tile(iog, tile)
-                exclude_for_network_base = _exclude_for_network_base(iog, tile)
-                for io_channel in tile_io_channels:
-                    c.io.set_uart_clock_ratio(io_channel, 10, io_group=iog)
-                    cid =  v2b_root_ids[ (io_channel-1) % 4]
-                    if cid in tile_excluded_chips:
-                        print(f'Skipping excluded ROOT chip {cid} on io_group={iog}, tile={tile}, io_channel={io_channel}')
+                unconfigured=[]
+                io_channels = utility_base.tile_to_io_channel([tile])
+                for io_channel in io_channels:
+                    if io_channel in pacman_base.DEAD_LOGICAL_CHANNELS:
+                        print(f'skipping dead logical channel {io_channel}')
                         continue
+                    pacman_base.set_packet_delay(c.io, iog, io_channel)
+                    # The bench-proven FSD v2d path runs at a ratio of 10.
+                    # Hijinks register operations use the mapped physical UART.
+                    pacman_base.set_uart_clock_ratio(c.io, iog, io_channel, 10)
+                    pacman_base.enable_pacman_uart_from_io_channels(c.io, iog, [io_channel])
+                    cid =  v2d_root_ids[ (io_channel-1) % 4]
                     network_base.network_ext_node_from_tuple(c, iog, io_channel, cid)
                     candidate_root = network_base.setup_root(c, c.io, iog, \
                                                           io_channel,\
@@ -148,7 +105,12 @@ def main(io_group, file_prefix=_default_file_prefix, \
            
                 print('ROOT KEYS: ',root_keys)
 
-                unconfigured=[]
+                if not root_keys:
+                    raise RuntimeError(
+                        f'No v2d roots replied on IOG {iog}, tile {tile}; '
+                        'network JSON was not written'
+                    )
+
                 iog_tile_to_root_keys=utility_base.partition_chip_keys_by_io_group_tile(root_keys)
                 print(iog_tile_to_root_keys)
                 for iog_tile in iog_tile_to_root_keys.keys():
@@ -156,21 +118,18 @@ def main(io_group, file_prefix=_default_file_prefix, \
                                              iog_tile_to_root_keys[iog_tile], \
                                              verbose, \
                                              io_group_asic_version_[iog], ref_current_trim, \
-                                             tx_diff, tx_slice, r_term, i_rx, exclude=exclude_for_network_base)
-                    if True:
-                            
-                        out_of_network=network_base.iterate_waitlist(c, c.io, iog, \
-                                                                 tile_io_channels,
-                                                                 verbose, \
-                                                                 io_group_asic_version_[iog], \
-                                                                 ref_current_trim,\
-                                                                 tx_diff, tx_slice, \
-                                                                 r_term, i_rx, exclude=exclude_for_network_base)
-                        unconfigured.extend(out_of_network)
-                _ensure_empty_network_entries(c, iog, utility_base.tile_to_io_channel([tile]))
-                if _file_prefix is None: file_prefix='iog-{}-pacman-tile-{}-hydra-network'.format(iog, tile) 
+                                             tx_diff, tx_slice, r_term, i_rx, exclude=iog_exclude[iog])
+                    out_of_network=network_base.iterate_waitlist(c, c.io, iog, \
+                                                             utility_base.tile_to_io_channel([tile]),
+                                                             verbose, \
+                                                             io_group_asic_version_[iog], \
+                                                             ref_current_trim,\
+                                                             tx_diff, tx_slice, \
+                                                             r_term, i_rx, exclude=iog_exclude[iog])
+                    unconfigured.extend(out_of_network)
+                if _file_prefix is None: file_prefix='iog_{}-tile_{}-hydra-network'.format(iog, tile) 
                 network_file = network_base.write_network_to_file(c, file_prefix, {io_group : [tile] },\
-                                       unconfigured)
+                                       unconfigured, asic_version='2d')
 
             return c, c.io
 
@@ -178,12 +137,11 @@ def main(io_group, file_prefix=_default_file_prefix, \
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--pacman_config', required=True)
     parser.add_argument('--io_group', default=None, \
                         type=int, help='''io group to network''')
     parser.add_argument('--pacman_tile', default=None, \
                         type=int, help='''PACMAN tile to work with''') 
-    parser.add_argument('--io_channels', '--io-channels', dest='io_channels', default=None, type=str,
-                        help='''Optional CSV of PACMAN io_channels to discover, e.g. 20 or 18,20''')
     parser.add_argument('--file_prefix', default=_default_file_prefix, \
                         type=str, help='''String prepended to filename''')
     parser.add_argument('--disable_logger', default=_default_disable_logger, \
@@ -212,4 +170,3 @@ if __name__=='__main__':
                         help='''Receiver bias current DAC''')
     args = parser.parse_args()
     main(**vars(args))
-

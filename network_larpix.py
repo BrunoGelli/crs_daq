@@ -11,6 +11,7 @@ from tqdm import tqdm
 from base import pacman_base
 from base import utility_base
 from base import enforce_parallel
+from base.asic_family import control_io_settings
 import json
 from base.utility_base import now
 import logging
@@ -26,36 +27,15 @@ _default_controller_config = None
 _update_default=False
 
 def enforce_iterative(nc, all_network_keys, n=5, configs=None, pbar_desc='p', pbar_position=0):
-    ok, diff, unconfigured = enforce_parallel.enforce_parallel(nc, all_network_keys, pbar_desc=pbar_desc, pbar_position=pbar_position)
-    if ok: return ok, diff, unconfigured
-    elif n==0: 
-        return ok, diff, unconfigured 
-    else:
-        all_keys = list(diff.keys())
-        for net in unconfigured:
-            all_keys += list(net)
-
-        all_network_keys = []
-        io_group_tiles = {}
-        for chip_key in diff.keys():
-            if not chip_key.io_group in io_group_tiles.keys(): io_group_tiles[chip_key.io_group] = set()
-            io_group_tiles[chip_key.io_group].add(utility_base.io_channel_to_tile(chip_key.io_channel))  
-
-        for chip_key in all_keys:
-            if not chip_key.io_group in io_group_tiles: io_group_tiles[chip_key.io_group] = None
-
-        for io_group in io_group_tiles.keys():
-            tiles = io_group_tiles[io_group]
-            config = configs[str(io_group)]
-            if io_group_asic_version_[io_group]=='2b':
-                c =  network_base.network_v2b(config, tiles=tiles, io_group=io_group)
-
-            elif io_group_asic_version_[io_group] in [2, 'lightpix-1']:
-                c = network_base.network_v2a(config, tiles=tiles, io_group=io_group)
-           
-            all_network_keys += enforce_parallel.get_chips_by_io_group_io_channel(config, use_keys=all_keys)
-
-        return enforce_iterative(nc, all_network_keys, n=n-1, configs=configs, pbar_desc=pbar_desc, pbar_position=pbar_position)
+    """Retry enforcement without constructing a second, wrongly typed IO."""
+    last = (False, {}, all_network_keys)
+    for _ in range(n + 1):
+        last = enforce_parallel.enforce_parallel(
+            nc, all_network_keys, pbar_desc=pbar_desc, pbar_position=pbar_position
+        )
+        if last[0]:
+            return last
+    return last
 
 def main(verbose,\
         controller_config, \
@@ -68,6 +48,7 @@ def main(verbose,\
     pacman_configs = {}
     with open(pacman_config, 'r') as f:
         pacman_configs = json.load(f)
+    control_io_group, asic_family, packet_family = control_io_settings(pacman_config)
     
     configs = {}
     with open(controller_config, 'r') as f:
@@ -90,9 +71,15 @@ def main(verbose,\
 
         config = configs[str(io_group)]
         dd=utility_base.update_json(network_config_paths_file_, io_group, config)
-        if io_group_asic_version_[io_group]=='2b':
+        if io_group != control_io_group:
+            raise RuntimeError('PACMAN configuration/io_group changed during startup')
+        if asic_family in ('2d', 3):
             if verbose: print('loading network_v2b') 
-            c =  network_base.network_v2b(config, tiles=tiles, io_group=io_group, pacman_config=pacman_config)
+            c = network_base.network_v2b(
+                config, tiles=tiles, io_group=io_group,
+                pacman_config=pacman_config, asic_version=asic_family,
+                packet_family=packet_family,
+            )
         
         elif io_group_asic_version_[io_group] in [2, 'lightpix-1']:
             if verbose: print('loading network_v2a')
@@ -120,7 +107,10 @@ def main(verbose,\
         DCONFIGS[io_group]=DCONFIG
 
     nc = larpix.Controller()
-    nc.io = larpix.io.PACMAN_IO(relaxed=True, config_filepath=pacman_config)
+    nc.io = larpix.io.PACMAN_IO(
+        relaxed=True, config_filepath=pacman_config,
+        asic_version=packet_family,
+    )
     
     for io_group_ip_pair in pacman_configs['io_group']:
         io_group = io_group_ip_pair[0]
@@ -154,4 +144,3 @@ if __name__=='__main__':
     parser.add_argument('--update_default', action='store_true', default=False)
     args=parser.parse_args()
     c = main(**vars(args))
-

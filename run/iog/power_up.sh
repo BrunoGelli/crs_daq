@@ -1,34 +1,7 @@
 #!/usr/bin/env bash
-
-if [[ "$1" == *"1"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io1.json 
-fi
-
-if [[ "$1" == *"2"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io2.json 
-fi
-
-if [[ "$1" == *"3"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io3.json 
-fi
-
-if [[ "$1" == *"4"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io4.json 
-fi
-
-if [[ "$1" == *"5"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io5.json 
-fi
-
-if [[ "$1" == *"6"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io6.json 
-fi
-
-if [[ "$1" == *"7"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io7.json 
-fi
-
-if [[ "$1" == *"8"* ]]; then
-python configure_pacman.py --pacman_config io/pacman_io8.json 
-fi
-
+set -euo pipefail
+selection="${1:-all}"
+case "$selection" in all) iogs=(1 2);; 1|2) iogs=("$selection");; *) echo "usage: $0 [all|1|2]" >&2; exit 2;; esac
+for iog in "${iogs[@]}"; do
+  python configure_pacman.py --pacman_config "io/pacman_io${iog}.json" --verbose
+done
